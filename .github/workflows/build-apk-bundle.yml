@@ -3,7 +3,8 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -13,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java
@@ -33,21 +34,37 @@ jobs:
           yes | sdkmanager --licenses || true
           sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
 
-
-      - name: Install Android SDK packages
+      - name: Find and extract project ZIP
         run: |
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+          ZIP="$(find . -maxdepth 3 -type f -iname 'NationsBMSReaderProject.zip' -print -quit)"
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: NationsBMSReaderProject.zip was not found."
+            echo "Files in repository:"
+            find . -maxdepth 3 -type f
+            exit 1
+          fi
+          mkdir -p android-project
+          unzip -o "$ZIP" -d android-project
+          echo "ZIP extracted. Project files:"
+          find android-project -maxdepth 4 -type f | head -100
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+      - name: Locate Gradle project
+        run: |
+          SETTINGS="$(find android-project -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: No settings.gradle found in extracted ZIP."
+            exit 1
+          fi
+          PROJECT_DIR="$(dirname "$SETTINGS")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Gradle project directory: $PROJECT_DIR"
+          ls -la "$PROJECT_DIR"
 
       - name: Build APK
-        run: gradle assembleDebug
+        run: gradle -p "$PROJECT_DIR" assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: NationsBMSReader-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: android-project/**/build/outputs/apk/debug/*.apk
